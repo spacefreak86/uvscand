@@ -1,0 +1,36 @@
+#!/sbin/openrc-run
+
+user=${USER:-daemon}
+uvscand_opts="${UVSCAND_OPTS:-}"
+cfg="${CONFIG:-}"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+command="/usr/bin/uvscand"
+command_args="-c ${cfg} ${uvscand_opts}"
+command_background=true
+start_stop_daemon_args="--user ${user}"
+
+
+depend() {
+	need net
+	before mta
+}
+
+checkconfig() {
+	if [ -z "${cfg}" ]; then
+		eerror "No config file specified!"
+	fi
+	return 0
+}
+
+start_pre() {
+	if [ "${RC_CMD}" != "restart" ]; then
+		checkconfig || return $?
+	fi
+}
+
+stop_pre() {
+	if [ "${RC_CMD}" != "restart" ]; then
+		checkconfig || return $?
+	fi
+}

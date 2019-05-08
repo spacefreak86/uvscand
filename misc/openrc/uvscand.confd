@@ -1,0 +1,10 @@
+# /etc/conf.d/uvscand: config file for /etc/init.d/uvscand
+
+# Start the daemon as the user. You can optionally append a group name here also.
+USER="postfix"
+# USER="postfix:nobody"
+
+CONFIG="/etc/uvscand.conf"
+
+# Optional parameters for uvscand
+UVSCAND_OPTS=""
