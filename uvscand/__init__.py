@@ -28,7 +28,7 @@ import time
 from subprocess import Popen, PIPE
 
 
-uvscan_regex = re.compile(r"Found(?: the |: | )(.+)(?: .*|\.)", re.MULTILINE)
+uvscan_regex = re.compile(r"Found:?(?: the| potentially unwanted program| (?:virus|trojan) or variant)? (.+?)(?:\.| (?:virus |trojan )?", re.MULTILINE)
 
 
 async def run(uvscan, filename):
