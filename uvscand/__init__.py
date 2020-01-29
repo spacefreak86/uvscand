@@ -106,9 +106,11 @@ class AIO(asyncio.Protocol):
         self.transport.write(response)
         self.transport.close()
 
-    def connection_list(self, exc):
+    def connection_lost(self, exc):
         if self.tmpfile:
+            self.logger.debug("removing temporary file {}".format(self.tmpfile))
             os.remove(self.tmpfile)
+        self.logger.debug("closed connection to {}".format(self.peer))
 
 
 def main():
