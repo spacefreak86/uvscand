@@ -34,7 +34,6 @@ uvscan_regex = re.compile(r"Found:?(?: the| potentially unwanted program| (?:vir
 async def run(uvscan, filename):
     proc = await asyncio.create_subprocess_exec(uvscan, "--secure", "--mime", "--noboot", "--panalyse", "--manalyse", filename, stdout=asyncio.subprocess.PIPE)
     stdout, _ = await proc.communicate()
-    os.remove(filename)
     if proc.returncode == 13:
         match = uvscan_regex.search(stdout.decode())
         name = match.group(1) if match else "UNKNOWN"
@@ -53,6 +52,7 @@ class AIO(asyncio.Protocol):
             raise RuntimeError("configuration not set")
         self.logger = logging.getLogger(__name__)
         self.data = bytearray()
+        self.tmpfile = None
 
     def connection_made(self, transport):
         self.peer = transport.get_extra_info("peername")
@@ -79,17 +79,17 @@ class AIO(asyncio.Protocol):
             pos += 1
             if command == "zINSTREAM":
                 # save data chunks to temporary file
-                tmpfile = os.path.join(AIO.config["tmpdir"], "uvscan_{}_{}".format(self.request_time, str(self.peer[1])))
-                self.logger.debug("save data from {} in temporary file {}".format(self.peer, tmpfile))
-                with open(tmpfile, "wb") as f:
+                self.tmpfile = os.path.join(AIO.config["tmpdir"], "uvscan_{}_{}".format(self.request_time, str(self.peer[1])))
+                self.logger.debug("save data from {} in temporary file {}".format(self.peer, self.tmpfile))
+                with open(self.tmpfile, "wb") as f:
                     while True:
                         length = struct.unpack(">I", self.data[pos:pos + 4])[0]
                         if length == 0: break
                         pos += 4
                         f.write(self.data[pos:pos + length])
                         pos += length
-                self.logger.debug("starting uvscan for file {}".format(tmpfile))
-                task = asyncio.async(run(AIO.config["uvscan_path"], tmpfile))
+                self.logger.debug("starting uvscan for file {}".format(self.tmpfile))
+                task = asyncio.async(run(AIO.config["uvscan_path"], self.tmpfile))
                 task.add_done_callback(self.handle_uvscan_result)
             else:
                 raise RuntimeError("unknown command")
@@ -105,6 +105,10 @@ class AIO(asyncio.Protocol):
         self.logger.debug("sending response to {}: {}".format(self.peer, response))
         self.transport.write(response)
         self.transport.close()
+
+    def connection_list(self, exc):
+        if self.tmpfile:
+            os.remove(self.tmpfile)
 
 
 def main():
