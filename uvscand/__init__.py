@@ -53,6 +53,7 @@ class AIO(asyncio.Protocol):
     config = None
     queue = asyncio.Queue()
     separator = b"\x00"
+    completed = False
 
     def __init__(self):
         if not AIO.config:
@@ -65,7 +66,7 @@ class AIO(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.peer = transport.get_extra_info("peername")
-        self.logger.debug("new connection from {}".format(self.peer))
+        self.logger.info("new connection from {}".format(self.peer))
         self.transport = transport
         self.request_time = str(time.time())
 
@@ -88,34 +89,53 @@ class AIO(asyncio.Protocol):
             pos += 1
             if command == "zINSTREAM":
                 # save data chunks to temporary file
-                self.tmpfile = os.path.join(AIO.config["tmpdir"], "uvscan_{}_{}".format(self.request_time, str(self.peer[1])))
-                self.logger.debug("save data from {} in temporary file {}".format(self.peer, self.tmpfile))
-                with open(self.tmpfile, "wb") as f:
+                tmpfile = os.path.join(AIO.config["tmpdir"], "uvscan_{}_{}".format(self.request_time, str(self.peer[1])))
+                self.logger.debug("save data from {} in temporary file {}".format(self.peer, tmpfile))
+                with open(tmpfile, "wb") as f:
+                    self.tmpfile = tmpfile
                     while True:
                         length = struct.unpack(">I", self.data[pos:pos + 4])[0]
                         if length == 0: break
                         pos += 4
                         f.write(self.data[pos:pos + length])
                         pos += length
-                self.logger.debug("starting uvscan for file {}".format(self.tmpfile))
-                asyncio.async(AIO.queue.put((AIO.config["uvscan_path"], self.tmpfile, self.send_response)))
+                AIO.queue.put_nowait((AIO.config["uvscan_path"], tmpfile, self.process_uvscan_result))
+                self.logger.info("queued uvscan of {}, queue size is {}".format(tmpfile, AIO.queue.qsize()))
             else:
                 raise RuntimeError("unknown command")
         except (RuntimeError, IndexError, IOError, struct.error) as e:
+            self.logger.warning("warning: {}".format(e))
             self.send_response(str(e))
 
     def send_response(self, response):
-        response = response.encode()
-        response += AIO.separator
+        response = response.encode() + AIO.separator
         self.logger.debug("sending response to {}: {}".format(self.peer, response))
         self.transport.write(response)
         self.transport.close()
 
+    def process_uvscan_result(self, result):
+        self.logger.info("received uvscan result of {}: {}".format(self.tmpfile, result))
+        self.completed = True
+        self.send_response(result)
+
     def connection_lost(self, exc):
         if self.tmpfile:
+            if not self.completed:
+                self.logger.warning("client prematurely closed connection, removing {} from scan queue".format(self.tmpfile))
+                entries = []
+                try:
+                    for entry in iter(AIO.queue.get_nowait, None):
+                        if not entry:
+                            continue
+                        if entry[1] != self.tmpfile:
+                            entries.append(entry)
+                except asyncio.QueueEmpty:
+                    pass
+                for entry in entries:
+                    AIO.queue.put_nowait(entry)
             self.logger.debug("removing temporary file {}".format(self.tmpfile))
             os.remove(self.tmpfile)
-        self.logger.debug("closed connection to {}".format(self.peer))
+        self.logger.info("closed connection to {}".format(self.peer))
 
 
 def main():
@@ -171,6 +191,10 @@ def main():
         if option not in config.keys():
             logger.error("option '{}' not present in config section 'uvscand'".format(option))
             sys.exit(1)
+
+    # set loglevel according to config
+    stdouthandler.setLevel(int(config["loglevel"]))
+    sysloghandler.setLevel(int(config["loglevel"]))
 
     # check if uvscan binary exists and is executable
     if not os.path.isfile(config["uvscan_path"]) or not os.access(config["uvscan_path"], os.X_OK):
