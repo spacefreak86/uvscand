@@ -138,6 +138,7 @@ class AIO(asyncio.Protocol):
                         else:
                             self.logger.debug("{} chunk complete ({} bytes)".format(self.peer, self.length))
                             self.length = None
+                            self.fsize = 0
 
         except (RuntimeError, IndexError, IOError, struct.error) as e:
             self.logger.warning("{} warning: {}".format(self.peer, e))
