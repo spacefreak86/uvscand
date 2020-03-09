@@ -117,6 +117,7 @@ class AIO(asyncio.Protocol):
                             with open(tmpfile, "wb") as f:
                                 self.tmpfile = tmpfile
                                 f.write(self.data)
+                            self.data = bytearray()
                             AIO.queue.put_nowait((AIO.config["uvscan_path"], tmpfile, self.process_uvscan_result))
                             self.logger.info("{} queued uvscan of {}, queue size is {}".format(self.peer, tmpfile, AIO.queue.qsize()))
                             break
