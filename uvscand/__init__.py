@@ -38,7 +38,7 @@ async def uvscan_worker(queue):
             await queue.put(None)
             break
         uvscan, filename, cb = job
-        proc = await asyncio.create_subprocess_exec(uvscan, "--secure", "--mime", "--noboot", "--panalyse", "--manalyse", filename, stdout=asyncio.subprocess.PIPE)
+        proc = await asyncio.create_subprocess_exec(uvscan, "--secure", "--mime", "--noboot", "--panalyse", "--manalyse", "--timeout=15",  filename, stdout=asyncio.subprocess.PIPE)
         stdout, _ = await proc.communicate()
         if proc.returncode == 13:
             match = uvscan_regex.search(stdout.decode())
