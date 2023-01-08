@@ -27,3 +27,16 @@ EOF
 systemctl restart uvscand
 systemctl status uvscand
 systemctl enable uvscand
+
+cat << 'EOF'>> /etc/rspamd/local.d/antivirus.conf
+uvscan {
+  scan_mime_parts = true;
+  scan_text_mime = true;
+  scan_image_mime = true;
+  type = "clamav";
+  symbol = "MCAFEE_VIRUS";
+  servers = "127.0.0.1:10060";
+  action = "reject";
+}
+EOF
+systemctl restart rspamd
