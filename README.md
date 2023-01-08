@@ -4,7 +4,7 @@ A python daemon to perform virus scans with uvscan (McAfee) over TCP socket, mai
 ## Developer information
 Everyone who wants to improve or extend this project is very welcome.
 
-### Installation
+## Installation
 git clone https://github.com/spacefreak86/uvscand  
 cd uvscand  
 python3 setup.py build  
