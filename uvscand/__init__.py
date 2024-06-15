@@ -60,7 +60,6 @@ class AIO(asyncio.Protocol):
             raise RuntimeError("queue not set")
         self.logger = logging.getLogger(__name__)
         self.tmpfile = None
-        self.cancelled = False
 
     def _send_response(self, response):
         response = response.encode() + AIO.separator
