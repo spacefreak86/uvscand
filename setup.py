@@ -30,5 +30,5 @@ setup(name = "uvscand",
             "uvscand=uvscand:main"
         ]
     },
-    python_requires = ">=3"
+    python_requires = ">=3.7"
 )
