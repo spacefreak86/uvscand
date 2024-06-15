@@ -41,7 +41,7 @@ async def uvscan_worker(queue):
         if proc.returncode == 13:
             match = uvscan_regex.search(stdout.decode())
             name = match.group(1) if match else "UNKNOWN"
-            result = "stream: {} FOUND".format(name)
+            result = f"stream: {name} FOUND"
         else:
             result = "stream: OK"
         cb(result)
@@ -63,13 +63,13 @@ class AIO(asyncio.Protocol):
 
     def _send_response(self, response):
         response = response.encode() + AIO.separator
-        self.logger.debug("{} sending response: {}".format(self.peer, response))
+        self.logger.debug(f"{self.peer} sending response: {response}")
         self.transport.write(response)
         self.transport.close()
 
     def connection_made(self, transport):
         self.peer = transport.get_extra_info("peername")
-        self.logger.info("new connection from {}".format(self.peer))
+        self.logger.info(f"new connection from {self.peer}")
         self.transport = transport
         self.request_time = str(time.time())
         self.buffer = bytearray()
@@ -80,10 +80,11 @@ class AIO(asyncio.Protocol):
 
     def data_received(self, data):
         try:
+            nbytes = len(data)
             if self.all_chunks:
-                self.logger.warning("{} received {} bytes of garbage after last chunk".format(self.peer, len(data)))
+                self.logger.warning(f"{self.peer} received {nbytes} bytes of garbage after last chunk")
                 return
-            self.logger.debug("{} received {} bytes".format(self.peer, len(data)))
+            self.logger.debug(f"{self.peer} received {nbytes} bytes")
             self.buffer.extend(data)
 
             if not self.command:
@@ -97,7 +98,7 @@ class AIO(asyncio.Protocol):
                 if command != "zINSTREAM":
                     raise RuntimeError("unknown command")
                 self.command = command
-                self.logger.debug("{} command is {}".format(self.peer, command))
+                self.logger.debug(f"{self.peer} command is {command}")
                 pos += 1
                 self.buffer = self.buffer[pos:]
             if self.command:
@@ -109,34 +110,37 @@ class AIO(asyncio.Protocol):
                         self.buffer = self.buffer[4:]
                         if self.length == 0:
                             self.all_chunks = True
-                            tmpfile = os.path.join(AIO.config["tmpdir"], "uvscan_{}_{}".format(self.request_time, str(self.peer[1])))
-                            self.logger.debug("{} got last chunk, save data to {}".format(self.peer, tmpfile))
+                            suffix = str(self.peer[1])
+                            tmpfile = os.path.join(AIO.config["tmpdir"], f"uvscan_{self.request_time}_{suffix}")
+                            self.logger.debug(f"{self.peer} got last chunk, save data to {tmpfile}")
                             with open(tmpfile, "wb") as f:
                                 self.tmpfile = tmpfile
                                 f.write(self.data)
                             AIO.queue.put_nowait((AIO.config["uvscan_path"], tmpfile, self.process_uvscan_result))
-                            self.logger.info("{} queued uvscan of {}, queue size is {}".format(self.peer, tmpfile, AIO.queue.qsize()))
+                            queuesize = AIO.queue.qsize()
+                            self.logger.info(f"{self.peer} queued uvscan of {tmpfile}, queue size is {queuesize}")
                             break
-                        self.logger.debug("{} got chunk size of {} bytes".format(self.peer, self.length))
+                        self.logger.debug(f"{self.peer} got chunk size of {self.length} bytes")
                     else:
                         if len(self.buffer) < self.length:
-                            self.logger.debug("{} got {} of {} bytes".format(self.peer, len(self.buffer), self.length))
+                            nbytes = len(self.buffer)
+                            self.logger.debug(f"{self.peer} got {nbytes} of {self.length} bytes")
                             break
-                        self.logger.debug("{} chunk complete ({} bytes)".format(self.peer, self.length))
+                        self.logger.debug(f"{self.peer} chunk complete ({self.length} bytes)")
                         self.data.extend(self.buffer[0:self.length])
                         self.buffer = self.buffer[self.length:]
                         self.length = None
 
         except (RuntimeError, IndexError, IOError, struct.error) as e:
-            self.logger.warning("{} warning: {}".format(self.peer, e))
+            self.logger.warning(f"{self.peer} warning: {e}")
             self._send_response(str(e))
 
     def process_uvscan_result(self, result):
-        self.logger.debug("{} removing temporary file {}".format(self.peer, self.tmpfile))
+        self.logger.debug(f"{self.peer} removing temporary file {self.tmpfile}")
         os.remove(self.tmpfile)
         self.tmpfile = None
         if not self.cancelled:
-            self.logger.info("{} received uvscan result of {}: {}".format(self.peer, self.tmpfile, result))
+            self.logger.info(f"{self.peer} received uvscan result of {self.tmpfile}: {result}")
             self._send_response(result)
 
     def connection_lost(self, exc):
@@ -155,15 +159,15 @@ class AIO(asyncio.Protocol):
             for entry in entries:
                 AIO.queue.put_nowait(entry)
             if self.cancelled:
-                self.logger.warning("{} client prematurely closed connection, skipped scan of {}".format(self.peer, self.tmpfile))
-                self.logger.debug("{} removing temporary file {}".format(self.peer, self.tmpfile))
+                self.logger.warning(f"{self.peer} client prematurely closed connection, skipped scan of {self.tmpfile}")
+                self.logger.debug(f"{self.peer} removing temporary file {self.tmpfile}")
                 os.remove(self.tmpfile)
             else:
-                self.logger.warning("{} client prematurely closed connection".format(self.peer))
+                self.logger.warning(f"{self.peer} client prematurely closed connection")
                 self.cancelled = True
 
         else:
-            self.logger.info("closed connection to {}".format(self.peer))
+            self.logger.info(f"closed connection to {self.peer}")
 
 
 def main():
@@ -183,8 +187,8 @@ def main():
     syslog_name = logname
     if args.debug:
         loglevel = logging.DEBUG
-        logname = "{}[%(name)s]".format(logname)
-        syslog_name = "{}: [%(name)s] %(levelname)s".format(syslog_name)
+        logname = f"{logname}[%(name)s]"
+        syslog_name = f"{syslog_name}: [%(name)s] %(levelname)s"
 
     root_logger = logging.getLogger()
     root_logger.setLevel(loglevel)
@@ -192,14 +196,14 @@ def main():
     # setup console log
     stdouthandler = logging.StreamHandler(sys.stdout)
     stdouthandler.setLevel(loglevel)
-    formatter = logging.Formatter("%(asctime)s {}: [%(levelname)s] %(message)s".format(logname), datefmt="%Y-%m-%d %H:%M:%S")
+    formatter = logging.Formatter(f"%(asctime)s {logname}: [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     stdouthandler.setFormatter(formatter)
     root_logger.addHandler(stdouthandler)
 
     # setup syslog
     sysloghandler = logging.handlers.SysLogHandler(address="/dev/log")
     sysloghandler.setLevel(loglevel)
-    formatter = logging.Formatter("{}: %(message)s".format(syslog_name))
+    formatter = logging.Formatter(f"{syslog_name}: %(message)s")
     sysloghandler.setFormatter(formatter)
     root_logger.addHandler(sysloghandler)
 
@@ -216,7 +220,7 @@ def main():
     config = dict(parser.items("uvscand"))
     for option in ["bind_address", "bind_port", "tmpdir", "uvscan_path", "loglevel"]:
         if option not in config.keys():
-            logger.error("option '{}' not present in config section 'uvscand'".format(option))
+            logger.error(f"option '{option}' not present in config section 'uvscand'")
             sys.exit(1)
 
     if not args.debug:
@@ -226,7 +230,7 @@ def main():
 
     # check if uvscan binary exists and is executable
     if not os.path.isfile(config["uvscan_path"]) or not os.access(config["uvscan_path"], os.X_OK):
-        logger.error("uvscan binary '{}' does not exist or is not executable".format(config["uvscan_path"]))
+        logger.error(f"uvscan binary '{config['uvscan_path']}' does not exist or is not executable")
         sys.exit(1)
 
     # setup protocol
