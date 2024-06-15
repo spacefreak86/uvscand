@@ -4,12 +4,12 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # uvscand is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with PyQuarantineMilter.  If not, see <http://www.gnu.org/licenses/>.
 #
@@ -24,8 +24,6 @@ import re
 import struct
 import sys
 import time
-
-from subprocess import Popen, PIPE
 
 
 uvscan_regex = re.compile(r"Found:?(?: the| potentially unwanted program| (?:virus|trojan) or variant)? (.+?)(?:\.| (?:virus |trojan )?)", re.MULTILINE)
@@ -61,13 +59,13 @@ class AIO(asyncio.Protocol):
             raise RuntimeError("queue not set")
         self.logger = logging.getLogger(__name__)
         self.tmpfile = None
+        self.cancelled = False
 
     def _send_response(self, response):
         response = response.encode() + AIO.separator
         self.logger.debug("{} sending response: {}".format(self.peer, response))
         self.transport.write(response)
         self.transport.close()
-
 
     def connection_made(self, transport):
         self.peer = transport.get_extra_info("peername")
@@ -79,7 +77,6 @@ class AIO(asyncio.Protocol):
         self.command = None
         self.length = None
         self.all_chunks = False
-        self.completed = False
 
     def data_received(self, data):
         try:
@@ -135,39 +132,48 @@ class AIO(asyncio.Protocol):
             self._send_response(str(e))
 
     def process_uvscan_result(self, result):
-        self.logger.info("{} received uvscan result of {}: {}".format(self.peer, self.tmpfile, result))
-        self.completed = True
-        self._send_response(result)
+        self.logger.debug("{} removing temporary file {}".format(self.peer, self.tmpfile))
+        os.remove(self.tmpfile)
+        self.tmpfile = None
+        if not self.cancelled:
+            self.logger.info("{} received uvscan result of {}: {}".format(self.peer, self.tmpfile, result))
+            self._send_response(result)
 
     def connection_lost(self, exc):
         if self.tmpfile:
-            if not self.completed:
-                self.logger.warning("{} client prematurely closed connection, removing {} from scan queue".format(self.peer, self.tmpfile))
-                entries = []
-                try:
-                    for entry in iter(AIO.queue.get_nowait, None):
-                        if not entry:
-                            continue
-                        if entry[1] != self.tmpfile:
-                            entries.append(entry)
-                except asyncio.QueueEmpty:
-                    pass
-                for entry in entries:
-                    AIO.queue.put_nowait(entry)
-            self.logger.debug("{} removing temporary file {}".format(self.peer, self.tmpfile))
-            os.remove(self.tmpfile)
-        self.logger.info("closed connection to {}".format(self.peer))
+            entries = []
+            try:
+                for entry in iter(AIO.queue.get_nowait, None):
+                    if not entry:
+                        continue
+                    if entry[1] != self.tmpfile:
+                        entries.append(entry)
+                    else:
+                        self.cancelled = True
+            except asyncio.QueueEmpty:
+                pass
+            for entry in entries:
+                AIO.queue.put_nowait(entry)
+            if self.cancelled:
+                self.logger.warning("{} client prematurely closed connection, skipped scan of {}".format(self.peer, self.tmpfile))
+                self.logger.debug("{} removing temporary file {}".format(self.peer, self.tmpfile))
+                os.remove(self.tmpfile)
+            else:
+                self.logger.warning("{} client prematurely closed connection".format(self.peer))
+                self.cancelled = True
+
+        else:
+            self.logger.info("closed connection to {}".format(self.peer))
 
 
 def main():
     "Run uvscand."
     # parse command line
-    parser = argparse.ArgumentParser(description="uvscand daemon",
+    parser = argparse.ArgumentParser(
+            description="uvscand daemon",
             formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=45, width=140))
-    parser.add_argument("-c", "--config", help="List of config files to read.", nargs="+",
-            default=["/etc/uvscand.conf"])
-    parser.add_argument("-m", "--maxprocs", help="Maximum number of parallel scan processes.",
-            type=int, default=8)
+    parser.add_argument("-c", "--config", help="List of config files to read.", nargs="+", default=["/etc/uvscand.conf"])
+    parser.add_argument("-m", "--maxprocs", help="Maximum number of parallel scan processes.", type=int, default=8)
     parser.add_argument("-d", "--debug", help="Log debugging messages.", action="store_true")
     args = parser.parse_args()
 
