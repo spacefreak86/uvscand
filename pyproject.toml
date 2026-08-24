@@ -1,0 +1,25 @@
+[tool.setuptools.packages.find]
+include = ["uvscand"]
+
+[project]
+name = "uvscand"
+version = "0.0.6"
+requires-python = ">=3.11"
+authors = [
+  {name = "Thomas Oettli", email = "spacefreak@noop.ch"}
+]
+maintainers = [
+  {name = "Thomas Oettli", email = "spacefreak@noop.ch"}
+]
+description = "A python daemon to perform virus scans with uvscan (McAfee) over TCP socket."
+readme = "README.md"
+license = "GPL-3.0-only"
+keywords = ["uvscan", "virus", "rspamd", "mail"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: System Administrators",
+  "Programming Language :: Python :: 3"
+]
+
+[project.scripts]
+uvscand = "uvscand:main"
