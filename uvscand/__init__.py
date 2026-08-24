@@ -236,7 +236,7 @@ def main():
     AIO.config = config
 
     # start uvscan workers
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     workers = [loop.create_task(uvscan_worker(AIO.queue)) for _ in range(args.maxprocs)]
 
     # start server
